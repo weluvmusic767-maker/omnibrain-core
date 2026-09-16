@@ -1,14 +1,8 @@
 package com.omnibrain.core.ui
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,11 +23,14 @@ class MainActivity : ComponentActivity() {
     private var isServiceRunning by mutableStateOf(false)
     private var searchQuery by mutableStateOf("")
     private var searchResults by mutableStateOf<List<String>>(emptyList())
+    private var totalLogCount by mutableStateOf(0L)
+    private var tunnelUrl by mutableStateOf("Offline")
     private lateinit var dbHelper: OmniBrainDbHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate()
         dbHelper = OmniBrainDbHelper(this)
+        refreshStats()
 
         setContent {
             MaterialTheme(
@@ -49,13 +46,17 @@ class MainActivity : ComponentActivity() {
                 ) {
                     DashboardScreen(
                         isRunning = isServiceRunning,
+                        logCount = totalLogCount,
+                        tunnelUrl = tunnelUrl,
                         onStartService = {
                             McpForegroundService.start(this)
                             isServiceRunning = true
+                            refreshStats()
                         },
                         onStopService = {
                             McpForegroundService.stop(this)
                             isServiceRunning = false
+                            refreshStats()
                         },
                         searchQuery = searchQuery,
                         onQueryChange = { searchQuery = it },
@@ -70,12 +71,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun refreshStats() {
+        totalLogCount = dbHelper.getTotalLogCount()
+        tunnelUrl = dbHelper.getConfig("tunnel_url") ?: "http://localhost:8080"
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     isRunning: Boolean,
+    logCount: Long,
+    tunnelUrl: String,
     onStartService: () -> Unit,
     onStopService: () -> Unit,
     searchQuery: String,
@@ -89,15 +96,14 @@ fun DashboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Title Header
         Text(
-            text = "OmniBrain Core",
-            fontSize = 28.sp,
+            text = "OmniBrain Dashboard",
+            fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White
         )
 
-        // Status Card
+        // Metrics & Control Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -107,30 +113,27 @@ fun DashboardScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "SERVER METRICS",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray
-                )
+                Text(text = "SERVER CONTROL & STATS", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isRunning) "Status: ONLINE" else "Status: OFFLINE",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isRunning) Color(0xFF00E676) else Color(0xFFFF5252)
+                        text = if (isRunning) "● Ktor Online" else "○ Ktor Stopped",
+                        color = if (isRunning) Color(0xFF00E676) else Color(0xFFFF5252),
+                        fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "Port: 8080",
-                        fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color.LightGray
-                    )
+                    Text(text = "Logs: $logCount", color = Color.LightGray, fontFamily = FontFamily.Monospace)
                 }
+
+                Text(
+                    text = "Endpoint: $tunnelUrl",
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    fontFamily = FontFamily.Monospace
+                )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -141,12 +144,12 @@ fun DashboardScreen(
                         containerColor = if (isRunning) Color(0xFFFF5252) else Color(0xFF6200EE)
                     )
                 ) {
-                    Text(if (isRunning) "Stop MCP Server" else "Start MCP Server")
+                    Text(if (isRunning) "Stop MCP Engine" else "Start MCP Engine")
                 }
             }
         }
 
-        // FTS5 Memory Query Section
+        // Search Interface Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -156,17 +159,12 @@ fun DashboardScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "MEMORY SEARCH (FTS5)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray
-                )
+                Text(text = "FTS5 MEMORY SEARCH", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onQueryChange,
-                    label = { Text("Enter search term...") },
+                    label = { Text("Search logs or tool results...") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -175,32 +173,25 @@ fun DashboardScreen(
                     onClick = onSearch,
                     modifier = Modifier.align(Alignment.End)
                 ) {
-                    Text("Search")
+                    Text("Search FTS5")
                 }
             }
         }
 
         // Search Results List
-        Text(
-            text = "Query Results (${searchResults.size})",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray
-        )
-
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(searchResults.size) { index ->
+            items(searchResults.size) { idx ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF2C2C2C))
                 ) {
                     Text(
-                        text = searchResults[index],
+                        text = searchResults[idx],
                         modifier = Modifier.padding(12.dp),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
