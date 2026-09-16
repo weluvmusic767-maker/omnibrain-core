@@ -1,106 +1,158 @@
 package com.omnibrain.core.router
 
-import com.omnibrain.core.model.JsonRpcError
-import com.omnibrain.core.model.JsonRpcRequest
-import com.omnibrain.core.model.JsonRpcResponse
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.call
-import io.ktor.server.request.receiveText
-import io.ktor.server.response.respond
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.Routing
-import io.ktor.server.routing.get
-import io.ktor.server.routing.post
+import android.content.ContentValues
+import com.omnibrain.core.db.OmniBrainDbHelper
+import io.ktor.server.application.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import kotlinx.serialization.json.*
 
-fun Routing.configureMcpRoutes() {
+fun Application.configureMcpRoutes(dbHelper: OmniBrainDbHelper) {
+    routing {
+        get("/status") {
+            call.respondText("""{"status": "ONLINE", "service": "OmniBrain Core"}""")
+        }
 
-    // MCP JSON-RPC endpoint
-    post("/mcp") {
-        try {
-            val body = call.receiveText()
-            val json = Json { ignoreUnknownKeys = true }
-            val request = json.decodeFromString<JsonRpcRequest>(body)
+        post("/mcp") {
+            val startTime = System.currentTimeMillis()
+            val requestText = call.receiveText()
+            val json = Json.parseToJsonElement(requestText).jsonObject
 
-            val response = when (request.method) {
-                "initialize" -> JsonRpcResponse(
-                    id = request.id,
-                    result = buildJsonObject {
-                        put("protocolVersion", "2024-11-05")
-                        putJsonObject("capabilities") {
-                            putJsonObject("tools") {}
-                        }
+            val method = json["method"]?.jsonPrimitive?.content ?: ""
+            val id = json["id"]?.jsonPrimitive?.intOrNull ?: 1
+
+            val response = when (method) {
+                "initialize" -> buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", id)
+                    putJsonObject("result") {
                         putJsonObject("serverInfo") {
-                            put("name", "OmniBrain Core Android")
+                            put("name", "OmniBrain Core")
                             put("version", "1.0.0")
                         }
                     }
-                )
-
-                "tools/list" -> JsonRpcResponse(
-                    id = request.id,
-                    result = buildJsonObject {
+                }
+                "tools/list" -> buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", id)
+                    putJsonObject("result") {
                         putJsonArray("tools") {
-                            add(buildJsonObject {
+                            addJsonObject {
                                 put("name", "omnibrain_status")
-                                put("description", "Check local OmniBrain service status and memory metrics")
+                                put("description", "Check the status of OmniBrain engine")
+                            }
+                            addJsonObject {
+                                put("name", "omnibrain_query_logs")
+                                put("description", "Search tool execution logs stored in SQLite")
                                 putJsonObject("inputSchema") {
                                     put("type", "object")
+                                    putJsonObject("properties") {
+                                        putJsonObject("limit") {
+                                            put("type", "integer")
+                                            put("description", "Number of recent logs to return (default: 10)")
+                                        }
+                                        putJsonObject("tool_filter") {
+                                            put("type", "string")
+                                            put("description", "Optional filter by tool name")
+                                        }
+                                    }
                                 }
-                            })
-                            add(buildJsonObject {
-                                put("name", "omnibrain_ping")
-                                put("description", "Ping local Android MCP core server")
-                                putJsonObject("inputSchema") {
-                                    put("type", "object")
-                                }
-                            })
+                            }
                         }
                     }
-                )
-
+                }
                 "tools/call" -> {
-                    val params = request.params?.jsonObject
-                    val toolName = params?.get("name")?.jsonPrimitive?.content
+                    val params = json["params"]?.jsonObject
+                    val toolName = params?.get("name")?.jsonPrimitive?.content ?: ""
+                    val arguments = params?.get("arguments")?.jsonObject
 
                     val resultText = when (toolName) {
-                        "omnibrain_status" -> "OmniBrain Core Service: ACTIVE\nStorage Engine: SQLite FTS5 Ready"
-                        "omnibrain_ping" -> "pong"
+                        "omnibrain_status" -> "OmniBrain status: Active & Ready."
+                        "omnibrain_query_logs" -> {
+                            val limit = arguments?.get("limit")?.jsonPrimitive?.intOrNull ?: 10
+                            val toolFilter = arguments?.get("tool_filter")?.jsonPrimitive?.contentOrNull
+                            queryLogs(dbHelper, limit, toolFilter)
+                        }
                         else -> "Error: Unknown tool '$toolName'"
                     }
 
-                    JsonRpcResponse(
-                        id = request.id,
-                        result = buildJsonObject {
+                    // Log execution to SQLite DB
+                    val executionTime = System.currentTimeMillis() - startTime
+                    logExecution(dbHelper, toolName, if (resultText.startsWith("Error")) "ERROR" else "SUCCESS", executionTime)
+
+                    buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", id)
+                        putJsonObject("result") {
                             putJsonArray("content") {
-                                add(buildJsonObject {
+                                addJsonObject {
                                     put("type", "text")
                                     put("text", resultText)
-                                })
+                                }
                             }
                         }
-                    )
+                    }
                 }
-
-                else -> JsonRpcResponse(
-                    id = request.id,
-                    error = JsonRpcError(code = -32601, message = "Method not found: ${request.method}")
-                )
+                else -> buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", id)
+                    putJsonObject("error") {
+                        put("code", -32601)
+                        put("message", "Method not found: $method")
+                    }
+                }
             }
 
-            call.respond(response)
-        } catch (e: Exception) {
-            call.respond(
-                HttpStatusCode.BadRequest,
-                JsonRpcResponse(
-                    error = JsonRpcError(code = -32700, message = "Parse error: ${e.localizedMessage}")
-                )
-            )
+            call.respondText(response.toString())
         }
     }
+}
 
-    // Health / Status endpoint
-    get("/status") {
-        call.respondText("""{"status":"ONLINE","server":"OmniBrain Ktor Android","port":8080}""", io.ktor.http.ContentType.Application.Json)
+private fun logExecution(dbHelper: OmniBrainDbHelper, toolName: String, status: String, executionTimeMs: Long) {
+    try {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put("tool_name", toolName)
+            put("status", status)
+            put("execution_time_ms", executionTimeMs)
+        }
+        db.insert("tool_execution_logs", null, values)
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+private fun queryLogs(dbHelper: OmniBrainDbHelper, limit: Int, toolFilter: String?): String {
+    return try {
+        val db = dbHelper.readableDatabase
+        val selection = if (toolFilter != null) "tool_name = ?" else null
+        val selectionArgs = if (toolFilter != null) arrayOf(toolFilter) else null
+
+        val cursor = db.query(
+            "tool_execution_logs",
+            arrayOf("id", "timestamp", "tool_name", "status", "execution_time_ms"),
+            selection,
+            selectionArgs,
+            null,
+            null,
+            "id DESC",
+            limit.toString()
+        )
+
+        val logs = mutableListOf<String>()
+        while (cursor.moveToNext()) {
+            val id = cursor.getInt(0)
+            val time = cursor.getString(1)
+            val name = cursor.getString(2)
+            val status = cursor.getString(3)
+            val duration = cursor.getInt(4)
+            logs.add("[$id] $time | Tool: $name | Status: $status | Duration: ${duration}ms")
+        }
+        cursor.close()
+
+        if (logs.isEmpty()) "No logs found." else logs.joinToString("\n")
+    } catch (e: Exception) {
+        "Failed to query logs: ${e.message}"
     }
 }
