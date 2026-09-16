@@ -233,5 +233,5 @@ fun OmniBrainShareButton(context: Context) {
 - [x] **Cloudflare Share Proxy:** Worker script & KV storage defined.
 - [x] **Android Share Action:** Kotlin exporter & Compose share button defined.
 - [x] **OmniBrain Local Store:** SQLite FTS5 database helper (`OmniBrainDbHelper.kt`).
-- [ ] **App Core MCP Engine:** Ktor HTTP/MCP server routing (`/mcp` + `/share`).
+- [x] **App Core MCP Engine:** Ktor HTTP/MCP server routing (`/mcp` + `/share`).
 - [ ] **Android App Shell:** Main app UI and `ForegroundService` for background MCP hosting.
