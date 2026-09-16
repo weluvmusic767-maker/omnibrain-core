@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.omnibrain.core">
 
+    <!-- Permissions required for background Ktor server hosting -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -14,8 +15,9 @@
         android:label="OmniBrain Core"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@android:style/Theme.DeviceDefault">
 
+        <!-- Background Service for MCP Hosting -->
         <service
             android:name=".service.McpForegroundService"
             android:enabled="true"
@@ -23,7 +25,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Hosts local Model Context Protocol (MCP) server over HTTP for LLM integration." />
+                android:value="Embedded Local MCP Server Engine for LLM Context Access" />
         </service>
 
     </application>
