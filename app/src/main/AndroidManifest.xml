@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.omnibrain.core">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Permissions required for background Ktor server hosting -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -15,19 +12,22 @@
         android:label="OmniBrain Core"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@android:style/Theme.Material.NoActionBar">
+        
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
-        <!-- Background Service for MCP Hosting -->
         <service
             android:name=".service.McpForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Embedded Local MCP Server Engine for LLM Context Access" />
-        </service>
-
+            android:foregroundServiceType="specialUse" />
+            
     </application>
-
 </manifest>

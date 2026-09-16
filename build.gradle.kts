@@ -1,12 +1,9 @@
 plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.kotlin.android) apply false
-    alias(libs.plugins.kotlin.serialization) apply false
+    id("com.android.application") version "8.2.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22" apply false
 }
 
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
+tasks.register("clean", Delete::class) {
+    delete(rootProject.buildDir)
 }
