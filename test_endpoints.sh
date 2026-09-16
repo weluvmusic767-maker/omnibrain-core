@@ -46,4 +46,22 @@ curl -s -X POST "$BASE_URL/mcp" \
       "name": "omnibrain_status"
     }
   }' | jq . || true
+echo -e "\n\n"
+
+echo "=========================================="
+echo "5. TESTING MCP TOOLS/CALL [omnibrain_query_logs]"
+echo "=========================================="
+curl -s -X POST "$BASE_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+      "name": "omnibrain_query_logs",
+      "arguments": {
+        "limit": 5
+      }
+    }
+  }' | jq . || true
 echo -e "\n"
