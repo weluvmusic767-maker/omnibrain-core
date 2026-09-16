@@ -1,96 +1,79 @@
 package com.omnibrain.core.service
 
-import android.app.*
-import android.content.Context
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.omnibrain.core.mcp.McpServerEngine
+import com.omnibrain.core.router.configureMcpRoutes
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.install
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import io.ktor.server.netty.NettyApplicationEngine
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.routing.routing
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.serialization.json.Json
 
 class McpForegroundService : Service() {
 
-    private var mcpEngine: McpServerEngine? = null
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var server: NettyApplicationEngine? = null
 
     companion object {
-        const val CHANNEL_ID = "OmniBrain_MCP_Channel"
-        const val NOTIFICATION_ID = 1001
-        const val ACTION_START = "ACTION_START_MCP"
-        const val ACTION_STOP = "ACTION_STOP_MCP"
-
-        fun start(context: Context) {
-            val intent = Intent(context, McpForegroundService::class.java).apply {
-                action = ACTION_START
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        fun stop(context: Context) {
-            val intent = Intent(context, McpForegroundService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.stopService(intent)
-        }
+        private const val CHANNEL_ID = "McpServerChannel"
+        private const val NOTIFICATION_ID = 1001
+        private const val PORT = 8080
     }
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        mcpEngine = McpServerEngine(applicationContext)
+        startForeground(NOTIFICATION_ID, createNotification("Starting server..."))
+
+        // Start Ktor Netty Server inside IO Coroutine Scope
+        server = embeddedServer(Netty, port = PORT) {
+            install(ContentNegotiation) {
+                json(Json {
+                    prettyPrint = true
+                    isLenient = true
+                    ignoreUnknownKeys = true
+                })
+            }
+            routing {
+                configureMcpRoutes()
+            }
+        }.start(wait = false)
+
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, createNotification("Server listening on port $PORT"))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopForegroundServer()
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            ACTION_START, null -> {
-                startForegroundServer()
-            }
-        }
         return START_STICKY
     }
 
-    private fun startForegroundServer() {
-        val notification = buildNotification("OmniBrain MCP Server Running (Port 8080)")
-        startForeground(NOTIFICATION_ID, notification)
-        
-        try {
-            mcpEngine?.start()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    override fun onDestroy() {
+        server?.stop(1000, 2000)
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
-    private fun stopForegroundServer() {
-        try {
-            mcpEngine?.stop()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun buildNotification(contentText: String): Notification {
-        val stopIntent = Intent(this, McpForegroundService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
+    private fun createNotification(contentText: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OmniBrain Core")
+            .setContentTitle("OmniBrain MCP Server")
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop MCP", stopPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -99,20 +82,13 @@ class McpForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "OmniBrain Background MCP Host",
+                "OmniBrain Server Channel",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps the Ktor MCP server online for cross-app LLM context access"
+                description = "Running embedded Ktor server for MCP JSON-RPC protocol"
             }
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(channel)
         }
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onDestroy() {
-        stopForegroundServer()
-        super.onDestroy()
     }
 }
