@@ -1,5 +1,6 @@
 package com.omnibrain.core.mcp
 
+import android.content.ContentValues
 import android.content.Context
 import com.omnibrain.core.db.OmniBrainDbHelper
 import io.ktor.http.*
@@ -34,8 +35,9 @@ class McpServerEngine(private val context: Context, private val port: Int = 8080
                 }
 
                 post("/mcp") {
+                    val startTime = System.currentTimeMillis()
                     val requestBody = call.receive<JsonObject>()
-                    val response = handleMcpRequest(requestBody)
+                    val response = handleMcpRequest(requestBody, startTime)
                     call.respond(HttpStatusCode.OK, response)
                 }
             }
@@ -46,7 +48,21 @@ class McpServerEngine(private val context: Context, private val port: Int = 8080
         server?.stop(1000, 2000)
     }
 
-    private fun handleMcpRequest(json: JsonObject): JsonObject {
+    private fun logToolExecution(toolName: String, status: String, executionTimeMs: Long) {
+        try {
+            val db = dbHelper.writableDatabase
+            val values = ContentValues().apply {
+                put("tool_name", toolName)
+                put("status", status)
+                put("execution_time_ms", executionTimeMs)
+            }
+            db.insert("tool_execution_logs", null, values)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun handleMcpRequest(json: JsonObject, startTime: Long): JsonObject {
         val method = json["method"]?.jsonPrimitive?.content ?: ""
         val id = json["id"] ?: JsonPrimitive(1)
 
@@ -91,7 +107,7 @@ class McpServerEngine(private val context: Context, private val port: Int = 8080
 
             "tools/call" -> {
                 val params = json["params"]?.jsonObject
-                val toolName = params?.get("name")?.jsonPrimitive?.content
+                val toolName = params?.get("name")?.jsonPrimitive?.content ?: "unknown"
                 val arguments = params?.get("arguments")?.jsonObject
 
                 if (toolName == "search_omnibrain_memory") {
@@ -106,6 +122,10 @@ class McpServerEngine(private val context: Context, private val port: Int = 8080
                         }
                     }
 
+                    // Record performance metrics to SQLite
+                    val duration = System.currentTimeMillis() - startTime
+                    logToolExecution(toolName, "SUCCESS", duration)
+
                     buildJsonObject {
                         put("jsonrpc", "2.0")
                         put("id", id)
@@ -119,6 +139,9 @@ class McpServerEngine(private val context: Context, private val port: Int = 8080
                         }
                     }
                 } else {
+                    val duration = System.currentTimeMillis() - startTime
+                    logToolExecution(toolName, "NOT_FOUND", duration)
+
                     buildJsonObject {
                         put("jsonrpc", "2.0")
                         put("id", id)
